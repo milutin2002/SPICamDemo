@@ -50,7 +50,35 @@ static inline void cs_low(){
 static void cs_high(){
     gpio_put(PIN_CS,1);
 }
+static uint8_t ardu_read(uint8_t reg){
+    cs_low();
+    uint8_t tx[2]={(uint8_t)reg&0x7Fu,0x00},rx[2];
+    spi_write_read_blocking(SPI_PORT,tx,rx,2);
+    cs_high();
+    return rx[1];
+}
+static void ardu_write(uint8_t reg,uint8_t val){
+    cs_low();
+    uint8_t tx[2]={(uint8_t)reg|0x80u,val},rx[2];
+    spi_write_read_blocking(SPI_PORT,tx,rx,2);
+    cs_high();
+}
 
+static uint32_t fifo_len(){
+    uint32_t L=0;
+    L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE1);
+    L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE2)<<16;
+    L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE3)<<24;
+    return L;
+}
+
+static void fifo_reset(){
+    ardu_write(ARDUCHIP_FIFO,FIFO_RDPTR_RST_MASK | FIFO_WRPTR_RST_MASK);
+}
+
+static void start_cap(){
+    ardu_write(ARDUCHIP_TRIG,START_CAP);
+}
 
 int main()
 {
