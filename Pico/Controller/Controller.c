@@ -80,12 +80,72 @@ static void start_cap(){
     ardu_write(ARDUCHIP_TRIG,START_CAP);
 }
 
+static void fifo_burst_read_blocking(uint8_t *buf,size_t len){
+    cs_low();
+    uint8_t cmd=(uint8_t)(BURST_FIFO_READ | 0x7F);
+    spi_write_blocking(SPI_PORT,&cmd,1);
+    spi_read_blocking(SPI_PORT,0x00,buf,len);
+    cs_high();
+}
+
+static bool s_w(uint8_t r, uint8_t v){
+    uint8_t b[2]={r,v}; return i2c_write_blocking(I2C_PORT, OV2640_ADDR, b, 2, false) >= 0;
+}
+static void ov2640_init_qvga_jpeg(){
+    s_w(0xFF,0x01); s_w(0x12,0x80); sleep_ms(100); 
+    s_w(0xFF,0x00); s_w(0x2C,0xFF); s_w(0x2E,0xDF);
+    s_w(0xFF,0x01); s_w(0x15,0x00); s_w(0x12,0x40); 
+    s_w(0xFF,0x00); s_w(0xE0,0x04);
+    s_w(0xC0,0x64); s_w(0xC1,0x4B); s_w(0x86,0x3D); s_w(0x50,0x00);
+    s_w(0x51,0xC8); s_w(0x52,0x96); s_w(0x53,0x00); s_w(0x54,0x00);
+    s_w(0x55,0x00); s_w(0x57,0x00); s_w(0x5A,0xC8); s_w(0x5B,0x96); s_w(0x5C,0x00);
+    s_w(0xE0,0x00); s_w(0xFF,0x01); s_w(0x11,0x01); s_w(0x0C,0x00);
+}
+
+static inline void send_via_uart(uint8_t *b,int n){
+    for (size_t i = 0; i < n; i++)
+    {
+        uart_putc_raw(UART_ID,b[i]);
+    }
+}
+
+static inline void init_spi(){
+    spi_init(SPI_PORT,8*1000*1000);
+    gpio_set_function(PIN_SCK,GPIO_FUNC_SPI);
+    gpio_set_function(PIN_MISO,GPIO_FUNC_SPI);
+    gpio_set_function(PIN_MOSI,GPIO_FUNC_SPI);
+    gpio_init(PIN_CS);
+    gpio_set_dir(PIN_CS,GPIO_OUT);
+
+}
+
+static inline void init_i2c(){
+    i2c_init(I2C_PORT,100*1000);
+    gpio_set_function(PIN_SDA,GPIO_FUNC_I2C);
+    gpio_set_function(PIN_SCL,GPIO_FUNC_I2C);
+    gpio_pull_up(PIN_SDA);
+    gpio_pull_down(PIN_SCL);
+}
+
+static inline void init_uart(){
+    uart_init(UART_ID,921600);
+    gpio_set_function(UART_TX,GPIO_FUNC_UART);
+}
+
 int main()
 {
     stdio_init_all();
-
-    while (true) {
-        printf("Hello, world!\n");
-        sleep_ms(1000);
+    printf("Starting\n");
+    init_spi();
+    init_i2c();
+    init_uart();
+    ardu_write(ARDUCHIP_TEST1,0x55);
+    if(ardu_read(ARDUCHIP_TEST1)!=0x55){
+        while(!true){
+            printf("Not able to connect spi\n");
+        }
+    }
+    while(true){
+        printf("Hello\n");
     }
 }
