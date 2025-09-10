@@ -1,7 +1,7 @@
 import serial
 import struct
 
-ser=serial.Serial("/dev/serial0",921600,timeout=1)
+ser=serial.Serial("/dev/serial0",115200,timeout=1)
 n=0
 def readImage():
 	global n
