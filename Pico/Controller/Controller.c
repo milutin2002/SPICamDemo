@@ -6,6 +6,7 @@
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
 #include "hardware/uart.h"
+#include "pico/binary_info.h"
 
 // ---- ArduCAM mini FIFO regs ----
 #define ARDUCHIP_TEST1      0x00
@@ -43,6 +44,9 @@ typedef struct msg_t{
 
 }msg_t;
 queue_t q;
+
+
+
 
 static inline void cs_low(){
     gpio_put(PIN_CS,0);
@@ -121,14 +125,15 @@ static inline void init_spi(){
 
 static inline void init_i2c(){
     i2c_init(I2C_PORT,100*1000);
+
     gpio_set_function(PIN_SDA,GPIO_FUNC_I2C);
     gpio_set_function(PIN_SCL,GPIO_FUNC_I2C);
     gpio_pull_up(PIN_SDA);
-    gpio_pull_down(PIN_SCL);
+    gpio_pull_up(PIN_SCL);
 }
 
 static inline void init_uart(){
-    uart_init(UART_ID,921600);
+    uart_init(UART_ID,UART_BAUD);
     gpio_set_function(UART_TX,GPIO_FUNC_UART);
 }
 static void sendAll(msg_t b){
