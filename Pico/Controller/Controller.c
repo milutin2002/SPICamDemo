@@ -131,21 +131,68 @@ static inline void init_uart(){
     uart_init(UART_ID,921600);
     gpio_set_function(UART_TX,GPIO_FUNC_UART);
 }
-
+static void sendAll(msg_t b){
+    for(int i=0;i<b.size;i++){
+        uart_putc_raw(UART_ID,b.buffer[i]);
+    }
+}
+static void core1Send(){
+    msg_t m;
+    printf("Core 1 activate");
+    while(true){
+        queue_remove_blocking(&q,&m);
+        printf("Sending buffer");
+        sendAll(m);
+    }
+}
 int main()
 {
     stdio_init_all();
-    printf("Starting\n");
     init_spi();
     init_i2c();
     init_uart();
     ardu_write(ARDUCHIP_TEST1,0x55);
-    if(ardu_read(ARDUCHIP_TEST1)!=0x55){
-        while(!true){
+    uint8_t t=ardu_read(ARDUCHIP_TEST1);
+    if(t!=0x55){
+        printf("The value is %d\n",t);
+        while(true){
             printf("Not able to connect spi\n");
         }
     }
+    ov2640_init_qvga_jpeg();
+    
+    queue_init(&q,sizeof(msg_t),4);
+    multicore_launch_core1(core1Send);
+
+    fifo_reset();
+    start_cap();
+
+    while(!(ardu_read(ARDUCHIP_TRIG) & CAP_DONE_MASK)){
+        tight_loop_contents();
+    }
+
+    uint32_t len=fifo_len();
+    msg_t m;
+    if(len && len<8*1024u*1024u){
+        m.size=8;
+        m.buffer[0]='F';
+        m.buffer[1]='R';
+        m.buffer[2]='A';
+        m.buffer[3]='M';
+        m.buffer[4]=(uint8_t)(0xFF&len);
+        m.buffer[5]=(uint8_t)(0xFF&(len>>8));
+        m.buffer[6]=(uint8_t)(0xFF&(len>>16));
+        m.buffer[7]=(uint8_t)(0xFF&(len>>24));
+        queue_add_blocking(&q,&m);
+        printf("Adding message");
+        while(len){
+            uint32_t take=len>BUFSIZ ? BUFSIZ:len;
+            m.size=take;
+            fifo_burst_read_blocking(m.buffer,take);
+            queue_add_blocking(&q,&m);
+            len-=take;
+        }
+    }
     while(true){
-        printf("Hello\n");
     }
 }
