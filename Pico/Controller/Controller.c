@@ -47,7 +47,6 @@ queue_t q;
 
 
 
-
 static inline void cs_low(){
     gpio_put(PIN_CS,0);
 }
@@ -71,6 +70,10 @@ static void ardu_write(uint8_t reg,uint8_t val){
 static uint32_t fifo_len(){
     uint32_t L=0;
     L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE1);
+    
+    while(true){
+        printf("Len 1 is %d\n",ardu_read(ARDUCHIP_FIFO_SIZE2));
+    }
     L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE2)<<16;
     L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE3)<<24;
     return L;
@@ -106,14 +109,14 @@ static void ov2640_init_qvga_jpeg(){
     s_w(0xE0,0x00); s_w(0xFF,0x01); s_w(0x11,0x01); s_w(0x0C,0x00);
 }
 
-static inline void send_via_uart(uint8_t *b,int n){
+static void send_via_uart(uint8_t *b,int n){
     for (size_t i = 0; i < n; i++)
     {
         uart_putc_raw(UART_ID,b[i]);
     }
 }
 
-static inline void init_spi(){
+static void init_spi(){
     spi_init(SPI_PORT,8*1000*1000);
     gpio_set_function(PIN_SCK,GPIO_FUNC_SPI);
     gpio_set_function(PIN_MISO,GPIO_FUNC_SPI);
@@ -123,7 +126,7 @@ static inline void init_spi(){
 
 }
 
-static inline void init_i2c(){
+static  void init_i2c(){
     i2c_init(I2C_PORT,100*1000);
 
     gpio_set_function(PIN_SDA,GPIO_FUNC_I2C);
@@ -132,7 +135,7 @@ static inline void init_i2c(){
     gpio_pull_up(PIN_SCL);
 }
 
-static inline void init_uart(){
+static void init_uart(){
     uart_init(UART_ID,UART_BAUD);
     gpio_set_function(UART_TX,GPIO_FUNC_UART);
 }
@@ -156,15 +159,18 @@ int main()
     init_spi();
     init_i2c();
     init_uart();
+    ov2640_init_qvga_jpeg();
+    cs_high();
     ardu_write(ARDUCHIP_TEST1,0x55);
     uint8_t t=ardu_read(ARDUCHIP_TEST1);
-    if(t!=0x55){
+    
+   if(t!=0x55){
         printf("The value is %d\n",t);
         while(true){
-            printf("Not able to connect spi\n");
+            printf("Not able to connect spi and value is %x\n",t);
         }
     }
-    ov2640_init_qvga_jpeg();
+    
     
     queue_init(&q,sizeof(msg_t),4);
     multicore_launch_core1(core1Send);
@@ -172,8 +178,10 @@ int main()
     fifo_reset();
     start_cap();
 
-    while(!(ardu_read(ARDUCHIP_TRIG) & CAP_DONE_MASK)){
+    t=ardu_read(ARDUCHIP_TRIG);
+    while(!(t & CAP_DONE_MASK)){
         tight_loop_contents();
+        t=ardu_read(ARDUCHIP_TRIG);
     }
 
     uint32_t len=fifo_len();
@@ -189,7 +197,6 @@ int main()
         m.buffer[6]=(uint8_t)(0xFF&(len>>16));
         m.buffer[7]=(uint8_t)(0xFF&(len>>24));
         queue_add_blocking(&q,&m);
-        printf("Adding message");
         while(len){
             uint32_t take=len>BUFSIZ ? BUFSIZ:len;
             m.size=take;
