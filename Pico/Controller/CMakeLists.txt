@@ -36,7 +36,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Controller Controller.c )
+add_executable(Controller Controller.c Lib/arducam.c)
 
 pico_set_program_name(Controller "Controller")
 pico_set_program_version(Controller "0.1")

@@ -20,6 +20,7 @@
 #define CAP_DONE_MASK       0x08
 #define START_CAP           0x02
 #define BURST_FIFO_READ     0x3C
+#define FIFO_FLUSH 0x01
 
 #define SPI_PORT spi0
 #define PIN_SCK 2
@@ -47,7 +48,7 @@ queue_t q;
 
 
 
-static inline void cs_low(){
+static void cs_low(){
     gpio_put(PIN_CS,0);
 }
 static void cs_high(){
@@ -57,6 +58,7 @@ static uint8_t ardu_read(uint8_t reg){
     cs_low();
     uint8_t tx[2]={(uint8_t)reg&0x7Fu,0x00},rx[2];
     spi_write_read_blocking(SPI_PORT,tx,rx,2);
+    sleep_ms(10);
     cs_high();
     return rx[1];
 }
@@ -64,22 +66,20 @@ static void ardu_write(uint8_t reg,uint8_t val){
     cs_low();
     uint8_t tx[2]={(uint8_t)reg|0x80u,val},rx[2];
     spi_write_read_blocking(SPI_PORT,tx,rx,2);
+    sleep_ms(10);
     cs_high();
 }
 
 static uint32_t fifo_len(){
     uint32_t L=0;
     L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE1);
-    
-    while(true){
-        printf("Len 1 is %d\n",ardu_read(ARDUCHIP_FIFO_SIZE2));
-    }
     L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE2)<<16;
     L|=(uint32_t)ardu_read(ARDUCHIP_FIFO_SIZE3)<<24;
     return L;
 }
 
 static void fifo_reset(){
+    ardu_write(ARDUCHIP_FIFO,FIFO_FLUSH);
     ardu_write(ARDUCHIP_FIFO,FIFO_RDPTR_RST_MASK | FIFO_WRPTR_RST_MASK);
 }
 
@@ -99,14 +99,23 @@ static bool s_w(uint8_t r, uint8_t v){
     uint8_t b[2]={r,v}; return i2c_write_blocking(I2C_PORT, OV2640_ADDR, b, 2, false) >= 0;
 }
 static void ov2640_init_qvga_jpeg(){
-    s_w(0xFF,0x01); s_w(0x12,0x80); sleep_ms(100); 
+    s_w(0xFF,0x01); s_w(0x12,0x80); sleep_ms(100);
+
+    // System tweaks
     s_w(0xFF,0x00); s_w(0x2C,0xFF); s_w(0x2E,0xDF);
-    s_w(0xFF,0x01); s_w(0x15,0x00); s_w(0x12,0x40); 
+
+    // JPEG enable
+    s_w(0xFF,0x01); s_w(0x15,0x00); s_w(0x12,0x40);
+
+    // QVGA window/scaler
     s_w(0xFF,0x00); s_w(0xE0,0x04);
     s_w(0xC0,0x64); s_w(0xC1,0x4B); s_w(0x86,0x3D); s_w(0x50,0x00);
     s_w(0x51,0xC8); s_w(0x52,0x96); s_w(0x53,0x00); s_w(0x54,0x00);
     s_w(0x55,0x00); s_w(0x57,0x00); s_w(0x5A,0xC8); s_w(0x5B,0x96); s_w(0x5C,0x00);
-    s_w(0xE0,0x00); s_w(0xFF,0x01); s_w(0x11,0x01); s_w(0x0C,0x00);
+    s_w(0xE0,0x00);
+
+    // PCLK div (slower output = easier bring-up)
+    s_w(0xFF,0x01); s_w(0x11,0x01); s_w(0x0C,0x00);
 }
 
 static void send_via_uart(uint8_t *b,int n){
@@ -117,7 +126,8 @@ static void send_via_uart(uint8_t *b,int n){
 }
 
 static void init_spi(){
-    spi_init(SPI_PORT,8*1000*1000);
+    spi_init(SPI_PORT,1000*1000);
+    spi_set_format(SPI_PORT,8,SPI_CPOL_0,SPI_CPHA_0,SPI_MSB_FIRST);
     gpio_set_function(PIN_SCK,GPIO_FUNC_SPI);
     gpio_set_function(PIN_MISO,GPIO_FUNC_SPI);
     gpio_set_function(PIN_MOSI,GPIO_FUNC_SPI);
@@ -176,6 +186,7 @@ int main()
     multicore_launch_core1(core1Send);
 
     fifo_reset();
+    ardu_read(ARDUCHIP_TRIG);
     start_cap();
 
     t=ardu_read(ARDUCHIP_TRIG);
@@ -204,7 +215,11 @@ int main()
             queue_add_blocking(&q,&m);
             len-=take;
         }
+        while(true){
+            printf("Capturing finished\n");
+        }
     }
     while(true){
+    
     }
 }
