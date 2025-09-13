@@ -23,6 +23,7 @@ void on_uart_rx() {
 // Define sensor slave address
 void picoSystemInit(){
     stdio_init_all();
+    sleep_ms(5000);
     // This example will use I2C0 on GPIO4 (SDA) and GPIO5 (SCL)
     i2c_init(I2C_PORT, 100 * 1000);
     gpio_set_function(PIN_SDA, GPIO_FUNC_I2C);
@@ -32,7 +33,7 @@ void picoSystemInit(){
     // Make the I2C pins available to picotool
     bi_decl( bi_2pins_with_func(PIN_SDA, PIN_SCL, GPIO_FUNC_I2C));
      // This example will use SPI0 at 0.5MHz.
-    spi_init(SPI_PORT, 8 * 1000*1000);
+    spi_init(SPI_PORT, 4 * 1000*1000);
     gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
     gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
     gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
@@ -100,15 +101,12 @@ int rdSensorReg8_8(uint8_t regID, uint8_t* regDat ){
 
  uint8_t read_reg(uint8_t address)
 {
-    uint8_t value = 0;
-	address = address& 0x7f;
-     cs_select();
-	spi_write_blocking(SPI_PORT, &address, 1);
-	sleep_ms(10);
-    spi_read_blocking(SPI_PORT, 0, &value, 1);
-	cs_deselect();
-    sleep_ms(10);
-	return value;
+    uint8_t tx[2]={(uint8_t)address&0x7F,0x00};
+    uint8_t rx[2]={0x00,0x00};
+    cs_select();
+    spi_write_read_blocking(SPI_PORT,tx,rx,2);
+    cs_deselect();
+    return rx[1];
 }
 
 int wrSensorRegs8_8(const struct sensor_reg reglist[])
@@ -237,24 +235,48 @@ void ov2640Init(){
     wrSensorReg8_8(0x15, 0x00);
     wrSensorRegs8_8(OV2640_320x240_JPEG);
 }
+void debug_dump_status(void) {
+    uint8_t trig = read_reg(ARDUCHIP_TRIG);
+    uint8_t f1 = read_reg(FIFO_SIZE1);
+    uint8_t f2 = read_reg(FIFO_SIZE2);
+    uint8_t f3 = read_reg(FIFO_SIZE3);
+    uint32_t len = (uint32_t)f1 | ((uint32_t)f2 << 8) | ((uint32_t)f3 << 16);
+    printf("DEBUG: TRIG=0x%02x FIFO_LEN=%u (0x%02x 0x%02x 0x%02x)\n", trig, len, f1, f2, f3);
+}
 void singleCapture(void){
    int i , count;
-   uint8_t value[1024*40];
+   uint8_t value[1024];
    //Flush the FIFO
    flush_fifo();
    //Start capture
    start_capture(); 
-   while(!get_bit(ARDUCHIP_TRIG , CAP_DONE_MASK)){;}
+   uint32_t start = to_ms_since_boot(get_absolute_time());
+   while(!get_bit(ARDUCHIP_TRIG , CAP_DONE_MASK)){
+        uint8_t trig = read_reg(ARDUCHIP_TRIG);
+        printf("Waiting CAP_DONE, TRIG=0x%02x\n", trig);
+        if (to_ms_since_boot(get_absolute_time()) - start > 5000) {
+            debug_dump_status();
+            printf("Capture timeout\n");
+            return;
+        }
+        sleep_ms(10);
+   }
    int length = read_fifo_length();
    count = length;
-   i = 0 ;
-   cs_select();
-   set_fifo_burst();//Set fifo burst mode
-   spi_read_blocking(SPI_PORT, BURST_FIFO_READ,value, length);
-   uart_write_blocking(UART_ID, value, length);
-	 count = 0;
-	 cs_deselect();
+   i=0;
+   while(count){
+        int take=count>1024?1024:count;
+        printf("Sending %d part\n",++i);
+        cs_select();
+        set_fifo_burst();//Set fifo burst mode
+        spi_read_blocking(SPI_PORT, BURST_FIFO_READ,value, take);
+        uart_write_blocking(UART_ID, value, take);
+	    cs_deselect();
+        count -=take;
+   }
 }
+
+
 uint8_t spiBusDetect(void){
     write_reg(0x00, 0x55);
     if(read_reg(0x00) == 0x55){
