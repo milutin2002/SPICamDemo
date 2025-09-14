@@ -259,7 +259,7 @@ void singleCapture(void){
             printf("Capture timeout\n");
             return;
         }
-        sleep_ms(10);
+        sleep_ms(1000);
    }
    int length = read_fifo_length();
    count = length;
